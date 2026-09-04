@@ -1,0 +1,54 @@
+name: Convertir XLS a JSON
+
+# No vuelve a eGob: toma los XLS que ya bajo la corrida anterior desde su
+# artefacto, los lee con los mismos lectores y comitea el JSON al repo.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Numero del run cuyo artefacto datos-municipio se quiere convertir (vacio = el ultimo)'
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  convertir:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependencias
+        run: pip install pandas openpyxl xlrd
+
+      - name: Traer los XLS del artefacto
+        uses: actions/download-artifact@v4
+        with:
+          name: datos-municipio
+          path: datos
+          run-id: ${{ inputs.run_id || github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Inventario
+        run: |
+          find datos -name '*.xls' | sort
+          echo "total: $(find datos -name '*.xls' | wc -l)"
+
+      - name: Convertir a JSON
+        run: python 3_convertir.py --datos datos --salida datos-municipio.json
+
+      - name: Publicar
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add datos-municipio.json
+          git diff --staged --quiet || git commit -m "Cedulas municipales al $(TZ=America/Guayaquil date '+%Y-%m-%d')"
+          git push

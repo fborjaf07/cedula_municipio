@@ -318,6 +318,37 @@ def direcciones_configuradas():
     (el que escribe --listar-direcciones), y por ultimo EGOB_DIRECCIONES,
     que admite "3.6=OBRAS PUBLICAS;3.2=AMBIENTAL".
     """
+    # El entorno primero: si alguien pide direcciones concretas, no tiene
+    # sentido que el catalogo completo se imponga y baje las 23.
+    env = os.environ.get("EGOB_DIRECCIONES", "").strip()
+    if env:
+        pedidos = [p.strip() for p in env.split(";") if p.strip()]
+        pedidos = [q for p in pedidos for q in p.split(",") if q.strip()]
+        catalogo = {}
+        for ruta in (os.path.join(BASE, "direcciones.json"),
+                     os.path.join(DATOS, "direcciones.json")):
+            if os.path.exists(ruta):
+                with open(ruta, encoding="utf-8") as f:
+                    for d in json.load(f):
+                        cod = d.get("codigo", "")
+                        catalogo[cod] = d
+                        catalogo[re.sub(r"^\d{4}\.", "", cod)] = d
+                break
+        salida = []
+        for p in pedidos:
+            codigo, _, nombre = p.partition("=")
+            codigo = codigo.strip()
+            base = catalogo.get(codigo, {})
+            salida.append({
+                "codigo": base.get("codigo") or codigo,
+                "buscar": base.get("buscar") or codigo,
+                "sugerencia": base.get("sugerencia") or base.get("codigo") or codigo,
+                "nombre": nombre.strip() or base.get("nombre", ""),
+                "asignacion": base.get("asignacion"),
+            })
+        log(f"   pedidas {len(salida)} direccion(es) por EGOB_DIRECCIONES")
+        return salida
+
     for ruta in (os.path.join(BASE, "direcciones.json"),
                  os.path.join(DATOS, "direcciones.json")):
         if not os.path.exists(ruta):
@@ -337,19 +368,6 @@ def direcciones_configuradas():
         log(f"   catalogo: {len(salida)} programas ({ruta})")
         return salida
 
-    env = os.environ.get("EGOB_DIRECCIONES", "").strip()
-    if env:
-        salida = []
-        for parte in env.split(";"):
-            parte = parte.strip()
-            if not parte:
-                continue
-            codigo, _, nombre = parte.partition("=")
-            codigo = codigo.strip()
-            salida.append({"codigo": codigo, "buscar": codigo,
-                           "sugerencia": codigo, "nombre": nombre.strip(),
-                           "asignacion": None})
-        return salida
     return []
 
 
@@ -388,13 +406,23 @@ def filtrar(page, programa=None, sugerencia="DIRECCIÓN GENERAL"):
     page.wait_for_timeout(4000)
     captura(page, "consulta_filtrada")
 
-    filas = page.locator("tbody tr").count()
+    filas = filas_datos(page)
     log(f"   {filas} filas cargadas")
     if filas < 2:
         raise SystemExit("La consulta quedó vacía: revise consulta_filtrada.png")
 
 
 TABLA_DATOS = "table.table-striped"   # distingue la tabla de datos del árbol lateral
+
+
+def filas_datos(page):
+    """Filas de la tabla de datos.
+
+    "tbody tr" a secas cuenta tambien el arbol lateral del menu, que es otra
+    tabla con su tbody. Eso inflaba el total y hacia creer que la seleccion
+    estaba incompleta cuando en realidad ya estaban todas marcadas.
+    """
+    return page.locator(f"{TABLA_DATOS} tbody tr").count()
 
 
 def marcadas(page):
@@ -410,9 +438,9 @@ def raton_sobre_las_filas(page):
     propia. Aun asi conviene tener el puntero sobre las filas para que la
     rueda no la intercepte ningun otro panel.
     """
-    fila = page.locator("tbody tr").nth(3)
+    fila = page.locator(f"{TABLA_DATOS} tbody tr").nth(3)
     if not fila.count():
-        fila = page.locator("tbody tr").first
+        fila = page.locator(f"{TABLA_DATOS} tbody tr").first
     if not fila.count():
         return False
     caja = fila.bounding_box()
@@ -435,7 +463,7 @@ def bajar_con_flechas(page, tope=2000):
     aplicacion va trayendo los tramos siguientes a medida que se llega al
     borde. Se pulsa en tandas y se mide si siguen apareciendo filas.
     """
-    primera = page.locator("tbody tr").first
+    primera = page.locator(f"{TABLA_DATOS} tbody tr").first
     if primera.count():
         try:
             primera.click(position={"x": 60, "y": 8}, timeout=8_000)
@@ -453,7 +481,7 @@ def bajar_con_flechas(page, tope=2000):
         cerrar_aviso(page)
         esperar_procesando(page, 30)
         page.wait_for_timeout(1000)
-        filas = page.locator("tbody tr").count()
+        filas = filas_datos(page)
         if filas == previo:
             quieto += 1
             log(f"   sin filas nuevas ({quieto}/8) en {filas}")
@@ -472,7 +500,7 @@ def bajar_con_rueda(page):
     """Alternativa: rueda y desplazamiento por codigo."""
     previo, quieto = 0, 0
     for _ in range(400):
-        filas = page.locator("tbody tr").count()
+        filas = filas_datos(page)
         if filas == previo:
             quieto += 1
             if quieto >= 5:

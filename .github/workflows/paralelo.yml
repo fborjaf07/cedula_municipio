@@ -1,0 +1,169 @@
+name: Descarga paralela por direccion
+
+# Una sesion de eGob por direccion, todas a la vez. El sistema admite
+# sesiones simultaneas con las mismas credenciales, asi que 23 jobs en
+# paralelo tardan lo que la direccion mas lenta en vez de la suma de todas.
+on:
+  workflow_dispatch:
+    inputs:
+      detalle:
+        description: 'Bajar el detalle de movimientos (necesario para el pago por meses)'
+        type: boolean
+        default: true
+      direcciones:
+        description: 'Codigos separados por coma (vacio = las 23 de direcciones.json)'
+        type: string
+        default: ''
+      paralelas:
+        description: 'Cuantas a la vez'
+        type: string
+        default: '23'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  preparar:
+    runs-on: ubuntu-latest
+    outputs:
+      matriz: ${{ steps.m.outputs.matriz }}
+      cuantas: ${{ steps.m.outputs.cuantas }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: m
+        run: |
+          python - <<'PY' >> $GITHUB_OUTPUT
+          import json, os
+          pedidas = "${{ inputs.direcciones }}".strip()
+          if pedidas:
+              codigos = [c.strip() for c in pedidas.replace(";", ",").split(",") if c.strip()]
+          else:
+              with open("direcciones.json", encoding="utf-8") as f:
+                  codigos = [d["codigo"] for d in json.load(f)]
+          print("matriz=" + json.dumps(codigos))
+          print("cuantas=" + str(len(codigos)))
+          PY
+      - run: echo "${{ steps.m.outputs.cuantas }} direcciones: ${{ steps.m.outputs.matriz }}"
+
+  descargar:
+    needs: preparar
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(inputs.paralelas || '23') }}
+      matrix:
+        direccion: ${{ fromJSON(needs.preparar.outputs.matriz) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependencias
+        run: |
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+
+      - name: Descargar ${{ matrix.direccion }}
+        env:
+          EGOB_USUARIO: ${{ secrets.EGOB_USUARIO }}
+          EGOB_CLAVE: ${{ secrets.EGOB_CLAVE }}
+          EGOB_DIRECCIONES: ${{ matrix.direccion }}
+        run: |
+          set -o pipefail
+          mkdir -p datos/detalle capturas
+          ARGS="--por-direccion"
+          if [ "${{ inputs.detalle }}" != "true" ]; then
+            ARGS="$ARGS --sin-detalle"
+          fi
+          python 1_descargar.py $ARGS 2>&1 | tee capturas/corrida.log
+
+      - name: Nombre de artefacto
+        if: always()
+        id: n
+        run: echo "slug=$(echo '${{ matrix.direccion }}' | tr -c 'A-Za-z0-9' '_')" >> $GITHUB_OUTPUT
+
+      - name: Guardar los XLS
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xls-${{ steps.n.outputs.slug }}
+          path: |
+            datos/**/*.xls
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Guardar capturas
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capturas-${{ steps.n.outputs.slug }}
+          path: capturas/
+          retention-days: 14
+
+  consolidar:
+    needs: descargar
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependencias
+        run: pip install pandas openpyxl xlrd
+
+      # Cada job dejo su propio artefacto; aqui se juntan todos en datos/.
+      - name: Reunir los XLS de todas las direcciones
+        uses: actions/download-artifact@v4
+        with:
+          pattern: xls-*
+          merge-multiple: true
+          path: datos
+
+      - name: Inventario
+        run: |
+          echo "partidas: $(ls -1 datos/partidas_*.xls 2>/dev/null | wc -l)"
+          echo "detalle:  $(ls -1 datos/detalle/*.xls 2>/dev/null | wc -l)"
+          ls -1 datos/partidas_*.xls 2>/dev/null | sort || true
+
+      - name: Convertir
+        run: |
+          set -o pipefail
+          python 3_convertir.py --datos datos --salida datos-municipio.json | tee conversion.log
+
+      - name: Resumen
+        if: always()
+        run: |
+          echo '## Consolidado' >> $GITHUB_STEP_SUMMARY
+          echo '' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat conversion.log >> $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      # Un solo artefacto con todo junto, para no tener que bajar 23.
+      - name: Guardar el consolidado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: datos-municipio
+          path: |
+            datos/**/*.xls
+            datos-municipio.json
+          retention-days: 30
+          overwrite: true
+
+      - name: Publicar
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add datos-municipio.json
+          git diff --staged --quiet || git commit -m "Cedulas municipales con detalle al $(TZ=America/Guayaquil date '+%Y-%m-%d')"
+          git pull --rebase --autostash || true
+          git push

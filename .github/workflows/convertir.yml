@@ -1,12 +1,12 @@
 name: Convertir XLS a JSON
 
-# No vuelve a eGob: toma los XLS que ya bajo la corrida anterior desde su
+# No vuelve a eGob: toma los XLS que ya bajo una corrida anterior desde su
 # artefacto, los lee con los mismos lectores y comitea el JSON al repo.
 on:
   workflow_dispatch:
     inputs:
       run_id:
-        description: 'Numero del run cuyo artefacto datos-municipio se quiere convertir (vacio = el ultimo)'
+        description: 'Id del run a convertir (vacio = busca solo el ultimo artefacto datos-municipio)'
         type: string
         default: ''
 
@@ -29,12 +29,38 @@ jobs:
       - name: Instalar dependencias
         run: pip install pandas openpyxl xlrd
 
+      # El id que pide download-artifact es el numero largo de la URL del run,
+      # no el "#7" de la lista. Para no tener que buscarlo a mano, se consulta
+      # la API por el artefacto mas reciente que se llame datos-municipio.
+      - name: Localizar el artefacto
+        id: buscar
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          if [ -n "${{ inputs.run_id }}" ]; then
+            echo "run_id=${{ inputs.run_id }}" >> $GITHUB_OUTPUT
+            echo "usando el run indicado: ${{ inputs.run_id }}"
+            exit 0
+          fi
+          RUN=$(gh api "repos/${{ github.repository }}/actions/artifacts?per_page=100" \
+                --jq '[.artifacts[] | select(.name == "datos-municipio" and .expired == false)]
+                      | sort_by(.created_at) | reverse | .[0].workflow_run.id')
+          if [ -z "$RUN" ] || [ "$RUN" = "null" ]; then
+            echo "No hay ningun artefacto datos-municipio vigente." >&2
+            gh api "repos/${{ github.repository }}/actions/artifacts?per_page=100" \
+              --jq '.artifacts[] | "\(.name)  run \(.workflow_run.id)  \(.created_at)  expirado=\(.expired)"' >&2
+            exit 1
+          fi
+          echo "run_id=$RUN" >> $GITHUB_OUTPUT
+          echo "artefacto mas reciente en el run $RUN"
+
       - name: Traer los XLS del artefacto
         uses: actions/download-artifact@v4
         with:
           name: datos-municipio
           path: datos
-          run-id: ${{ inputs.run_id || github.run_id }}
+          run-id: ${{ steps.buscar.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Inventario
@@ -43,7 +69,18 @@ jobs:
           echo "total: $(find datos -name '*.xls' | wc -l)"
 
       - name: Convertir a JSON
-        run: python 3_convertir.py --datos datos --salida datos-municipio.json
+        run: |
+          set -o pipefail
+          python 3_convertir.py --datos datos --salida datos-municipio.json | tee conversion.log
+
+      - name: Resumen
+        if: always()
+        run: |
+          echo '## Direcciones convertidas' >> $GITHUB_STEP_SUMMARY
+          echo '' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat conversion.log >> $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Publicar
         run: |

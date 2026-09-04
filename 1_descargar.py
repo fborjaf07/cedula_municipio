@@ -706,9 +706,72 @@ def seleccionar_todo(page):
             captura(page, "todo_seleccionado")
             return n
 
+    # La casilla de la cabecera solo alcanza al tramo que la tabla tiene
+    # montado (en direcciones grandes, 28 de 116). Como la exportacion
+    # respeta la seleccion, lo que no quede marcado no sale en el XLS: hay
+    # que terminar a mano.
+    n = marcar_una_por_una(page, total)
+    if n >= max(2, total - 1):
+        captura(page, "todo_seleccionado")
+        return n
+
     captura(page, "seleccion_incompleta")
-    log(f"   ! solo {marcadas(page)} de {total} marcadas; el archivo puede "
-        f"salir incompleto")
+    log(f"   ! solo {n} de {total} marcadas; el archivo saldra incompleto")
+    return n
+
+
+def marcar_una_por_una(page, total, vueltas=6):
+    """Marca las casillas que quedaron sin marcar, fila por fila.
+
+    Mas lento que la cabecera, pero es la unica forma de que el XLS salga
+    completo cuando la tabla monta las filas por tramos. Se hace en vueltas
+    porque cada clic provoca una consulta al servidor y la tabla puede
+    remontar filas por el camino.
+    """
+    log("   completando la seleccion fila por fila")
+    for vuelta in range(1, vueltas + 1):
+        cajas = page.locator(f"{TABLA_DATOS} tbody input[type=checkbox]")
+        pendientes = []
+        for i in range(cajas.count()):
+            c = cajas.nth(i)
+            try:
+                if not c.is_checked():
+                    pendientes.append(c)
+            except Exception:
+                continue
+
+        if not pendientes:
+            break
+
+        log(f"   vuelta {vuelta}: {len(pendientes)} sin marcar")
+        hechos = 0
+        for c in pendientes:
+            try:
+                c.scroll_into_view_if_needed(timeout=4_000)
+                c.click(timeout=6_000)
+                hechos += 1
+            except Exception:
+                cerrar_aviso(page)
+                try:
+                    c.click(timeout=6_000, force=True)
+                    hechos += 1
+                except Exception:
+                    continue
+            if hechos % 25 == 0:
+                cerrar_aviso(page)
+                esperar_procesando(page, 20)
+                log(f"      {marcadas(page)} de {total}")
+
+        cerrar_aviso(page)
+        esperar_procesando(page)
+        page.wait_for_timeout(1200)
+        n = marcadas(page)
+        log(f"   vuelta {vuelta}: {n} de {total} marcadas")
+        if n >= max(2, total - 1):
+            return n
+        if hechos == 0:
+            break
+
     return marcadas(page)
 
 
@@ -1047,20 +1110,24 @@ def comprobar_asignacion(ruta, direccion):
     esperado = direccion.get("asignacion")
     try:
         d = LP.leer(ruta)
-        obtenido = (d.get("total") or {}).get("asignacion") or 0.0
+        t = d.get("total") or {}
+        # LP.leer llama "inicial" a la asignacion inicial.
+        obtenido = t.get("inicial") or t.get("asignacion") or 0.0
+        codificado = t.get("codificado") or 0.0
         n = len(d.get("partidas") or [])
     except Exception as e:
         log(f"   ! no pude leer {os.path.basename(ruta)}: {e}")
         return None
 
     if esperado is None:
-        log(f"   {n} partidas · asignacion {obtenido:,.2f} (sin referencia)")
+        log(f"   {n} partidas · asignacion {obtenido:,.2f}"
+            f" · codificado {codificado:,.2f} (sin referencia)")
         return None
 
     dif = round(obtenido - esperado, 2)
     cuadra = abs(dif) < 0.5
     log(f"   {n} partidas · POA {esperado:,.2f} · bajado {obtenido:,.2f}"
-        f" · {'ok' if cuadra else 'NO CUADRA'}")
+        f" · codificado {codificado:,.2f} · {'ok' if cuadra else 'NO CUADRA'}")
     return {"codigo": direccion["codigo"], "esperado": esperado,
             "obtenido": obtenido, "diferencia": dif, "cuadra": cuadra}
 

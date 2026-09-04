@@ -523,7 +523,7 @@ def bajar_con_rueda(page):
 def bajar_hasta_el_final(page):
     """Carga toda la tabla: primero con flechas, y si no, con la rueda."""
     n = bajar_con_flechas(page)
-    if n < 200:
+    if n < 40:
         log("   pocas filas con las flechas; pruebo con la rueda")
         n = max(n, bajar_con_rueda(page))
     log(f"   {n} filas cargadas")
@@ -635,6 +635,84 @@ def casilla_codigo(page):
     return None
 
 
+def ampliar_paginador(page, tope=5000):
+    """Pide a la rejilla que muestre todos los registros de una vez.
+
+    La tabla no es de scroll infinito: es paginada. Baja lo que se pulse
+    con flechas o rueda, pero nunca pasa de la pagina montada (unas 30
+    filas), asi que la seleccion y la exportacion salen truncadas. El
+    contador del pie ("1 / 288") es editable: al pulsarlo aparece un campo
+    donde se puede escribir un rango, y con "1-5000" la rejilla trae todo.
+
+    Deja captura del pie para poder ver el DOM real si no funciona.
+    """
+    log("   ampliando el paginador")
+    esperar_procesando(page)
+
+    # 1) selector de tamano de pagina, si lo hay
+    for sel in ["select[name*='page']", "select[name*='limit']",
+                ".dataTables_length select", "select.form-control"]:
+        c = page.locator(sel).first
+        try:
+            if not c.count() or not c.is_visible():
+                continue
+            opciones = c.locator("option")
+            valores = []
+            for i in range(opciones.count()):
+                t = (opciones.nth(i).get_attribute("value") or "").strip()
+                if t.isdigit():
+                    valores.append(int(t))
+            if valores:
+                c.select_option(str(max(valores)))
+                log(f"      tamano de pagina a {max(valores)}")
+                esperar_procesando(page)
+                page.wait_for_timeout(2500)
+                return True
+        except Exception:
+            continue
+
+    # 2) contador editable del pie: "1 / 288"
+    contador = None
+    for sel in [".o_pager_counter", "[class*=pager] [class*=counter]",
+                "[class*=pager]", "span:text-matches(r'^\\s*\\d+\\s*/\\s*\\d+\\s*$')",
+                "div:text-matches(r'^\\s*\\d+\\s*/\\s*\\d+\\s*$')"]:
+        c = page.locator(sel).last
+        try:
+            if c.count() and c.is_visible():
+                contador = c
+                log(f"      contador: «{(c.inner_text() or '').strip()[:40]}»")
+                break
+        except Exception:
+            continue
+
+    if contador is None:
+        captura(page, "sin_paginador")
+        log("      ! no encontre el paginador; revise sin_paginador.png")
+        return False
+
+    try:
+        contador.click(timeout=8_000)
+        page.wait_for_timeout(600)
+    except Exception:
+        pass
+
+    campo = page.locator("input:visible").last
+    try:
+        if campo.count():
+            campo.fill(f"1-{tope}")
+            page.keyboard.press("Enter")
+            page.wait_for_timeout(2500)
+            esperar_procesando(page, 120)
+            page.wait_for_timeout(1500)
+            log(f"      pedidas las filas 1-{tope}")
+            return True
+    except Exception as e:
+        log(f"      ! no pude escribir el rango: {str(e)[:80]}")
+
+    captura(page, "paginador_sin_campo")
+    return False
+
+
 def seleccionar_todo(page):
     """Baja hasta el fondo y ahi marca la casilla de la cabecera.
 
@@ -646,6 +724,7 @@ def seleccionar_todo(page):
     """
     log("5. Bajando hasta el final de la tabla")
     esperar_procesando(page)
+    ampliar_paginador(page)
     total = bajar_hasta_el_final(page)
     captura(page, "tabla_completa")
 
@@ -1114,7 +1193,7 @@ def descargar_por_direccion(page, direcciones):
     malos = [c for c in ok if not c["cuadra"]]
     if malos:
         log("")
-        log("REVISAR — la asignacion bajada no coincide con el POA:")
+        log("REVISAR — estas direcciones bajaron vacias:")
         for c in malos:
             log(f"   {c['codigo']:>10}  POA {c['esperado']:>15,.2f}"
                 f"   bajado {c['obtenido']:>15,.2f}"
@@ -1153,9 +1232,19 @@ def comprobar_asignacion(ruta, direccion):
         return None
 
     dif = round(obtenido - esperado, 2)
-    cuadra = abs(dif) < 0.5
+    igual = abs(dif) < 0.5
+    # La cifra del POA es solo referencia: en varias direcciones incluye el
+    # programa hijo de gasto corriente, asi que diferir no es un error. Lo
+    # que si es un error es bajar un archivo vacio.
+    cuadra = obtenido > 0 and n > 0
+    if igual:
+        nota = "igual al POA"
+    elif cuadra:
+        nota = f"difiere del POA en {dif:,.2f} (referencia)"
+    else:
+        nota = "VACIO — repetir"
     log(f"   {n} partidas · POA {esperado:,.2f} · bajado {obtenido:,.2f}"
-        f" · codificado {codificado:,.2f} · {'ok' if cuadra else 'NO CUADRA'}")
+        f" · codificado {codificado:,.2f} · {nota}")
     return {"codigo": direccion["codigo"], "esperado": esperado,
             "obtenido": obtenido, "diferencia": dif, "cuadra": cuadra}
 

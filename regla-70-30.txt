@@ -1,0 +1,67 @@
+REGLA DE ASIGNACION MINIMA PRIORITARIA (70-30)
+Base legal: Ley Organica Reformatoria al COOTAD, R.O. 6to Suplemento 229, 23-feb-2026
+             Decreto Ejecutivo 392 (Reglamento General)
+
+FORMULA DE VERIFICACION DEFINITIVA  (Reglamento art. 6)
+  % Cumplimiento = Gasto Computable Devengado / Egresos No Financieros Devengados x 100
+
+EJERCICIO 2026 - VERIFICACION EXCEPCIONAL  (Reglamento, Transitoria Primera)
+  Ventana de medicion: devengado del 1 de junio al 30 de noviembre de 2026
+  Umbral: al menos 65%
+  Verificacion: al cierre del periodo; seguimiento desde el 1 de diciembre de 2026
+  Umbrales siguientes: 68% en 2027 | 70% desde 2028
+
+DENOMINADOR - Egresos no financieros  (COOTAD art. 198.1)
+  Todos los grupos del Clasificador EXCEPTO:
+    56 Egresos financieros
+    87 Inversiones financieras
+    96 Amortizacion de la deuda publica
+    97 Pasivo circulante
+    98 Obligaciones por ventas anticipadas de petroleo y convenios
+    99 Otros pasivos
+
+NUMERADOR - Gasto computable  (COOTAD art. 198.2)
+  Subgrupo 73 Bienes y servicios para inversion, solo en:
+    73.01 Servicios basicos
+    73.02 Servicios generales, EXCEPTO items 73.02.05, 73.02.21, 73.02.48, 73.02.49
+    73.03 Traslados, instalaciones, viaticos y subsistencias
+    73.04 Instalacion, mantenimiento y reparacion
+    73.05 Arrendamiento de bienes
+    73.06 Contratacion de estudios, investigacion y servicios tecnicos especializados
+    73.08 Bienes de uso y consumo de inversion
+    73.10 Pertrechos para la defensa y seguridad publica
+    73.11 Convenios de adhesion para adquisicion de medicamentos de consulta externa
+    73.14 Bienes muebles no depreciables
+    73.15 Bienes biologicos no depreciables
+    73.16 Fondo de reposicion de inversion
+  Grupo 75 Obras publicas
+  Grupo 77 Otros egresos de inversion
+  Grupo 84 Bienes de larga duracion
+  Grupo 88 Transferencias o donaciones de capital
+
+EXCLUSION CUALITATIVA  (Reglamento art. 9)
+  No es gasto computable el que, aun estando en los grupos habilitados, no guarde
+  relacion directa y verificable con proyectos, obras, mantenimiento, reposicion de
+  activos publicos o prestacion efectiva de servicios publicos.
+
+CONSISTENCIA CON SIGAD  (Reglamento art. 8)
+  El gasto computable de naturaleza 7 no puede exceder el monto agregado de los
+  proyectos de inversion registrados en el SIGAD.
+
+REPORTE
+  Trimestral preventivo: 30 dias despues del cierre de cada trimestre (art. 5),
+    caracter informativo, no constituye pronunciamiento definitivo.
+  Definitivo: 30 dias despues del cierre del ejercicio (art. 7).
+  Publicacion trimestral en el portal institucional hasta el dia 15 del mes
+    siguiente al trimestre (COOTAD art. 198.4).
+
+INCUMPLIMIENTO  (Reglamento art. 10 y Disposicion General Primera)
+  Se aplican los porcentajes del art. 271 de la Constitucion a las transferencias
+  del ejercicio fiscal subsiguiente. Tambien se considera incumplimiento definitivo
+  la no remision de informacion por mas de un periodo trimestral.
+
+APLICACION AL TABLERO
+  El indicador es INSTITUCIONAL: denominador = egresos no financieros de todo el GAD.
+  Por direccion solo cabe medir el aporte al numerador y al denominador, no el
+  cumplimiento de la regla.
+  Los datos actuales cubren unicamente la Direccion de Obras Publicas.

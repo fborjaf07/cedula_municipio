@@ -1,0 +1,163 @@
+[
+  {
+    "codigo": "2026.1.1",
+    "buscar": "1.1",
+    "sugerencia": "2026.1.1",
+    "nombre": "DIRECCION GENERAL DE GESTION ADMINISTRATIVA",
+    "asignacion": 9937557.5
+  },
+  {
+    "codigo": "2026.1.2",
+    "buscar": "1.2",
+    "sugerencia": "2026.1.2",
+    "nombre": "DIRECCION GENERAL DE GESTION FINANCIERA",
+    "asignacion": 1363638.54
+  },
+  {
+    "codigo": "2026.1.3",
+    "buscar": "1.3",
+    "sugerencia": "2026.1.3",
+    "nombre": "DIRECCION GENERAL DE GESTION DE JUSTICIA Y CONTROL MUNICIPAL",
+    "asignacion": 2226004.32
+  },
+  {
+    "codigo": "2026.1.4",
+    "buscar": "1.4",
+    "sugerencia": "2026.1.4",
+    "nombre": "PROCURADURIA",
+    "asignacion": 460881.42
+  },
+  {
+    "codigo": "2026.1.5",
+    "buscar": "1.5",
+    "sugerencia": "2026.1.5",
+    "nombre": "DIRECCION DE AUDITORIA INTERNA (CGE)",
+    "asignacion": 95798.59
+  },
+  {
+    "codigo": "2026.1.6",
+    "buscar": "1.6",
+    "sugerencia": "2026.1.6",
+    "nombre": "DIRECCION GENERAL DE GESTION DE LA COMUNICACION",
+    "asignacion": 1353060.33
+  },
+  {
+    "codigo": "2026.1.7",
+    "buscar": "1.7",
+    "sugerencia": "2026.1.7",
+    "nombre": "DIRECCION GENERAL DE GESTION DE TALENTO HUMANO",
+    "asignacion": 1941790.59
+  },
+  {
+    "codigo": "2026.1.8",
+    "buscar": "1.8",
+    "sugerencia": "2026.1.8",
+    "nombre": "DIRECCION GENERAL DE GESTION DE TECNOLOGIAS DE LA INFORMACION Y COMUNICACION",
+    "asignacion": 2396456.7
+  },
+  {
+    "codigo": "2026.1.9",
+    "buscar": "1.9",
+    "sugerencia": "2026.1.9",
+    "nombre": "CONCEJOS Y JUNTAS",
+    "asignacion": 389392.47
+  },
+  {
+    "codigo": "2026.1.10",
+    "buscar": "1.10",
+    "sugerencia": "2026.1.10",
+    "nombre": "SECRETARIA GENERAL",
+    "asignacion": 1568931.5
+  },
+  {
+    "codigo": "2026.2.1",
+    "buscar": "2.1",
+    "sugerencia": "2026.2.1",
+    "nombre": "DIRECCION GENERAL DE GESTION DE CULTURA, DEPORTES, ARTES Y CONOCIMIENTO",
+    "asignacion": 3244374.89
+  },
+  {
+    "codigo": "2026.2.4",
+    "buscar": "2.4",
+    "sugerencia": "2026.2.4",
+    "nombre": "DIRECCION GENERAL DE GESTION DE DESARROLLO SOCIAL E INCLUSION",
+    "asignacion": 3128442.31
+  },
+  {
+    "codigo": "2026.3.1",
+    "buscar": "3.1",
+    "sugerencia": "2026.3.1",
+    "nombre": "DIRECCION GENERAL DE GESTION DE PLANIFICACION, HABITAT Y DESARROLLO URBANISTICO",
+    "asignacion": 2187896.9
+  },
+  {
+    "codigo": "2026.3.2",
+    "buscar": "3.2",
+    "sugerencia": "2026.3.2",
+    "nombre": "DIRECCION GENERAL DE GESTION AMBIENTAL",
+    "asignacion": 5895574.59
+  },
+  {
+    "codigo": "2026.3.3",
+    "buscar": "3.3",
+    "sugerencia": "2026.3.3",
+    "nombre": "DIRECCION GENERAL DE GESTION DE MOVILIDAD",
+    "asignacion": 11077758.67
+  },
+  {
+    "codigo": "2026.3.4",
+    "buscar": "3.4",
+    "sugerencia": "2026.3.4",
+    "nombre": "DIRECCION GENERAL DE GESTION DE DESARROLLO ECONOMICO Y TURISMO",
+    "asignacion": 3675723.86
+  },
+  {
+    "codigo": "2026.3.5",
+    "buscar": "3.5",
+    "sugerencia": "2026.3.5",
+    "nombre": "DIRECCION GENERAL DE GESTION ESTRATEGICA",
+    "asignacion": 1117603.39
+  },
+  {
+    "codigo": "2026.3.6",
+    "buscar": "3.6",
+    "sugerencia": "2026.3.6",
+    "nombre": "DIRECCION GENERAL DE GESTION DE OBRAS PUBLICAS",
+    "asignacion": 43333542.54
+  },
+  {
+    "codigo": "2026.3.7",
+    "buscar": "3.7",
+    "sugerencia": "2026.3.7",
+    "nombre": "REGISTRO DE LA PROPIEDAD",
+    "asignacion": 1925091.3
+  },
+  {
+    "codigo": "2026.3.8",
+    "buscar": "3.8",
+    "sugerencia": "2026.3.8",
+    "nombre": "DIRECCION GENERAL DE GESTION DE AVALUOS Y CATASTROS Y SIG",
+    "asignacion": 555051.56
+  },
+  {
+    "codigo": "2026.3.9",
+    "buscar": "3.9",
+    "sugerencia": "2026.3.9",
+    "nombre": "DIRECCION GENERAL DE GESTION DE PATRIMONIO",
+    "asignacion": 1801499.8
+  },
+  {
+    "codigo": "2026.5.1",
+    "buscar": "5.1",
+    "sugerencia": "2026.5.1",
+    "nombre": "GASTOS COMUNES DE LA ENTIDAD",
+    "asignacion": 1494000
+  },
+  {
+    "codigo": "2026.5.2",
+    "buscar": "5.2",
+    "sugerencia": "2026.5.2",
+    "nombre": "SERVICIO DE LA DEUDA",
+    "asignacion": 5701703.08
+  }
+]

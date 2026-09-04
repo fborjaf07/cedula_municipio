@@ -1,0 +1,5 @@
+capturas/
+datos/*.xls
+datos/detalle/*.xls
+__pycache__/
+*.pyc

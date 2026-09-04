@@ -60,9 +60,16 @@ def cargar_detalle(carpeta):
     que es la que refleja el ultimo corte.
     """
     bloques, leidos, avisos = {}, 0, []
-    rutas = sorted(glob.glob(os.path.join(carpeta, "*.xls")),
+    # Recursivo: segun como se armo el artefacto, el detalle puede quedar en
+    # datos/detalle/ o un nivel mas abajo, en datos/datos/detalle/.
+    rutas = sorted(set(glob.glob(os.path.join(carpeta, "*.xls"))
+                       + glob.glob(os.path.join(carpeta, "**", "*.xls"),
+                                   recursive=True)),
                    key=os.path.getmtime)
     for ruta in rutas:
+        # Los Partida XLS no son detalle; leerlos aqui solo genera avisos.
+        if os.path.basename(ruta).startswith("partidas_"):
+            continue
         try:
             d = LD.leer(ruta)
         except Exception as e:
@@ -200,9 +207,20 @@ def main():
     a = ap.parse_args()
 
     cat = catalogo()
-    rutas = sorted(glob.glob(os.path.join(a.datos, "partidas_*.xls")))
+    # Se busca en profundidad: al reunir artefactos, los XLS pueden quedar en
+    # datos/ o en datos/datos/. Si el mismo archivo aparece dos veces se
+    # conserva uno solo, por nombre.
+    rutas, vistos = [], set()
+    for r in sorted(glob.glob(os.path.join(a.datos, "**", "partidas_*.xls"),
+                              recursive=True)):
+        nombre = os.path.basename(r)
+        if nombre in vistos:
+            continue
+        vistos.add(nombre)
+        rutas.append(r)
     if not rutas:
-        raise SystemExit(f"No hay partidas_*.xls en {a.datos}")
+        raise SystemExit(f"No hay partidas_*.xls en {a.datos} "
+                         f"(se busco tambien en subcarpetas)")
 
     direcciones, avisos = [], []
     for ruta in rutas:
@@ -242,7 +260,7 @@ def main():
               "comprometido", "devengado")
     total = {k: round(sum(x["total"][k] for x in direcciones), 2) for k in campos}
 
-    bloques, n_det, av_det = cargar_detalle(os.path.join(a.datos, "detalle"))
+    bloques, n_det, av_det = cargar_detalle(a.datos)
     avisos += av_det
 
     salida = {

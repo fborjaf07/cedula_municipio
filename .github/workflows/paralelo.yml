@@ -155,9 +155,16 @@ jobs:
 
       - name: Publicar
         run: |
+          set -e
+          # El JSON lo reescribe cada corrida completa, asi que fusionarlo con
+          # el del repo solo produce conflictos. Se guarda aparte, se vuelve a
+          # main limpio y se comitea encima.
+          cp datos-municipio.json /tmp/datos-municipio.json
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout -B main origin/main
+          cp /tmp/datos-municipio.json datos-municipio.json
           git add datos-municipio.json
           git diff --staged --quiet || git commit -m "Cedulas municipales con detalle"
-          git pull --rebase --autostash || true
-          git push
+          git push origin main

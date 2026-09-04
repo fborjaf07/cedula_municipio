@@ -7,6 +7,9 @@ name: Descarga paralela
 # La lista va literal a proposito: leerla de direcciones.json obligaba a un
 # job previo y a fromJSON en el bloque strategy, y ahi se rompia el YAML.
 on:
+  # 22:00 en Ecuador (UTC-5) = 03:00 UTC del dia siguiente.
+  schedule:
+    - cron: "0 3 * * *"
   workflow_dispatch:
     inputs:
       detalle:
@@ -66,7 +69,9 @@ jobs:
           EGOB_USUARIO: ${{ secrets.EGOB_USUARIO }}
           EGOB_CLAVE: ${{ secrets.EGOB_CLAVE }}
           EGOB_DIRECCIONES: ${{ matrix.direccion }}
-          DETALLE: ${{ inputs.detalle }}
+          # En la corrida programada inputs.detalle viene vacio; el detalle
+          # es justamente lo que hace falta, asi que se asume que si.
+          DETALLE: ${{ inputs.detalle == false && 'false' || 'true' }}
         run: |
           set -o pipefail
           mkdir -p datos/detalle capturas
@@ -153,18 +158,25 @@ jobs:
           retention-days: 30
           overwrite: true
 
+      - name: Armar los datos del tablero
+        run: |
+          set -o pipefail
+          python 4_tablero.py --entrada datos-municipio.json --salida datos-regla.json | tee -a conversion.log
+
       - name: Publicar
         run: |
           set -e
           # El JSON lo reescribe cada corrida completa, asi que fusionarlo con
           # el del repo solo produce conflictos. Se guarda aparte, se vuelve a
           # main limpio y se comitea encima.
-          cp datos-municipio.json /tmp/datos-municipio.json
+          cp datos-municipio.json /tmp/
+          cp datos-regla.json /tmp/
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin main
           git checkout -B main origin/main
           cp /tmp/datos-municipio.json datos-municipio.json
-          git add datos-municipio.json
+          cp /tmp/datos-regla.json datos-regla.json
+          git add datos-municipio.json datos-regla.json
           git diff --staged --quiet || git commit -m "Cedulas municipales con detalle"
           git push origin main

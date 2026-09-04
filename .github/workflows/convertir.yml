@@ -82,18 +82,25 @@ jobs:
           cat conversion.log >> $GITHUB_STEP_SUMMARY || true
           echo '```' >> $GITHUB_STEP_SUMMARY
 
+      - name: Armar los datos del tablero
+        run: |
+          set -o pipefail
+          python 4_tablero.py --entrada datos-municipio.json --salida datos-regla.json | tee -a conversion.log
+
       - name: Publicar
         run: |
           set -e
           # El JSON lo reescribe cada corrida completa, asi que fusionarlo con
           # el del repo solo produce conflictos. Se guarda aparte, se vuelve a
           # main limpio y se comitea encima.
-          cp datos-municipio.json /tmp/datos-municipio.json
+          cp datos-municipio.json /tmp/
+          cp datos-regla.json /tmp/
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin main
           git checkout -B main origin/main
           cp /tmp/datos-municipio.json datos-municipio.json
-          git add datos-municipio.json
+          cp /tmp/datos-regla.json datos-regla.json
+          git add datos-municipio.json datos-regla.json
           git diff --staged --quiet || git commit -m "Cedulas municipales con detalle"
           git push origin main

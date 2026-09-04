@@ -1,0 +1,163 @@
+name: Descarga paralela
+
+# Una sesion de eGob por direccion, todas a la vez. eGob admite sesiones
+# simultaneas con las mismas credenciales, asi que 23 jobs en paralelo
+# tardan lo que la direccion mas lenta en vez de la suma de todas.
+#
+# La lista va literal a proposito: leerla de direcciones.json obligaba a un
+# job previo y a fromJSON en el bloque strategy, y ahi se rompia el YAML.
+on:
+  workflow_dispatch:
+    inputs:
+      detalle:
+        description: "Bajar el detalle de movimientos"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  descargar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        direccion:
+          - "2026.1.1"
+          - "2026.1.2"
+          - "2026.1.3"
+          - "2026.1.4"
+          - "2026.1.5"
+          - "2026.1.6"
+          - "2026.1.7"
+          - "2026.1.8"
+          - "2026.1.9"
+          - "2026.1.10"
+          - "2026.2.1"
+          - "2026.2.4"
+          - "2026.3.1"
+          - "2026.3.2"
+          - "2026.3.3"
+          - "2026.3.4"
+          - "2026.3.5"
+          - "2026.3.6"
+          - "2026.3.7"
+          - "2026.3.8"
+          - "2026.3.9"
+          - "2026.5.1"
+          - "2026.5.2"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: |
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+
+      - name: Descargar
+        env:
+          EGOB_USUARIO: ${{ secrets.EGOB_USUARIO }}
+          EGOB_CLAVE: ${{ secrets.EGOB_CLAVE }}
+          EGOB_DIRECCIONES: ${{ matrix.direccion }}
+          DETALLE: ${{ inputs.detalle }}
+        run: |
+          set -o pipefail
+          mkdir -p datos/detalle capturas
+          if [ "$DETALLE" = "true" ]; then
+            python 1_descargar.py --por-direccion 2>&1 | tee capturas/corrida.log
+          else
+            python 1_descargar.py --por-direccion --sin-detalle 2>&1 | tee capturas/corrida.log
+          fi
+
+      - name: Nombre de artefacto
+        if: always()
+        id: n
+        env:
+          COD: ${{ matrix.direccion }}
+        run: |
+          SLUG=$(echo "$COD" | tr "." "_")
+          echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
+
+      - name: Guardar los XLS
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xls-${{ steps.n.outputs.slug }}
+          path: datos
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Guardar capturas
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capturas-${{ steps.n.outputs.slug }}
+          path: capturas
+          retention-days: 14
+
+  consolidar:
+    needs: descargar
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: pip install pandas openpyxl xlrd
+
+      - name: Reunir los XLS de todas las direcciones
+        uses: actions/download-artifact@v4
+        with:
+          pattern: xls-*
+          merge-multiple: true
+          path: datos
+
+      - name: Inventario
+        run: |
+          ls -1 datos/partidas_*.xls | wc -l
+          ls -1 datos/detalle/*.xls | wc -l || true
+          ls -1 datos/partidas_*.xls | sort
+
+      - name: Convertir
+        run: |
+          set -o pipefail
+          python 3_convertir.py --datos datos --salida datos-municipio.json | tee conversion.log
+
+      - name: Resumen
+        if: always()
+        run: |
+          echo "## Consolidado" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          sed "s/^/    /" conversion.log >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Guardar el consolidado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: datos-municipio
+          path: |
+            datos
+            datos-municipio.json
+          retention-days: 30
+          overwrite: true
+
+      - name: Publicar
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add datos-municipio.json
+          git diff --staged --quiet || git commit -m "Cedulas municipales con detalle"
+          git pull --rebase --autostash || true
+          git push

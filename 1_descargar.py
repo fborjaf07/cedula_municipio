@@ -158,23 +158,44 @@ def inventario(page):
 def elegir_sugerencia(page, texto, espera=25):
     """Espera a que aparezca la sugerencia y hace clic en ella.
 
-    El autocompletado consulta al servidor y a veces tarda varios
-    segundos. Esperar un tiempo fijo no alcanza: hay que sondear hasta
-    que la opcion exista.
+    El autocompletado consulta al servidor y a veces tarda varios segundos:
+    hay que sondear hasta que la opcion exista.
+
+    Primero se busca coincidencia EXACTA. Es imprescindible: cada direccion
+    tiene un programa hijo de gasto corriente cuyo codigo la contiene
+    ("2026.3.6" vs "2026.3.6.000"), y con :has-text el hijo tambien casa.
+    Asi se bajaba el gasto corriente en lugar de la direccion completa.
     """
-    selectores = [f"li:has-text('{texto}')",
-                  f"div[role=option]:has-text('{texto}')",
-                  f"td:has-text('{texto}')",
-                  f"*:visible:has-text('{texto}')"]
-    for _ in range(espera * 2):
-        for sel in selectores:
-            c = page.locator(sel).last
+    exactos = [f"td:text-is('{texto}')",
+               f"li:text-is('{texto}')",
+               f"div[role=option]:text-is('{texto}')",
+               f"span:text-is('{texto}')"]
+    parciales = [f"li:has-text('{texto}')",
+                 f"div[role=option]:has-text('{texto}')",
+                 f"td:has-text('{texto}')"]
+
+    for vuelta in range(espera * 2):
+        for sel in exactos:
+            c = page.locator(sel).first
             try:
                 if c.count() and c.is_visible():
                     c.click(timeout=8_000)
                     return True
             except Exception:
                 continue
+        # Solo despues de esperar de verdad se acepta una coincidencia
+        # parcial, y avisando: puede haber elegido el hijo.
+        if vuelta > espera:
+            for sel in parciales:
+                c = page.locator(sel).first
+                try:
+                    if c.count() and c.is_visible():
+                        log(f"      sin coincidencia exacta de «{texto}»; "
+                            f"acepto parcial")
+                        c.click(timeout=8_000)
+                        return True
+                except Exception:
+                    continue
         page.wait_for_timeout(500)
     return False
 
@@ -395,6 +416,29 @@ def filtrar(page, programa=None, sugerencia="DIRECCIÓN GENERAL"):
     log(f"   programa {programa}")
     llenar(page, "program", programa, sugerencia)
     captura(page, "programa_elegido")
+
+    # El campo queda con "2026.3.6 - DIRECCION ...". Si el autocompletado
+    # eligio el hijo de gasto corriente, aqui se ve y hay que abortar: el
+    # archivo saldria con otro programa y nadie lo notaria.
+    puesto = ""
+    for sel in ["input[name=program]", "[name=program] input",
+                "[name=program]"]:
+        c = page.locator(sel).first
+        try:
+            if c.count():
+                puesto = (c.input_value() or "").strip()
+                if puesto:
+                    break
+        except Exception:
+            continue
+    if puesto:
+        log(f"   quedo: {puesto[:70]}")
+        cod = puesto.split()[0].strip()
+        if sugerencia and cod and cod != sugerencia and not cod.endswith(programa):
+            captura(page, "programa_equivocado")
+            raise SystemExit(
+                f"El campo Programa quedo en «{cod}» y se pidio «{sugerencia}». "
+                f"Probablemente eligio el programa hijo de gasto corriente.")
 
     # Recargar la consulta con el filtro puesto.
     for sel in ["[title*='Recargar']", "[title*='Buscar']", "[title*='Refrescar']"]:
@@ -635,6 +679,27 @@ def casilla_codigo(page):
     return None
 
 
+def total_paginador(page):
+    """Lee el total del contador del pie ("1 / 30" -> 30).
+
+    Es el unico dato fiable de cuantas filas tiene el resultado: contar
+    "tbody tr" incluye el arbol lateral y ademas la rejilla monta las filas
+    por tramos.
+    """
+    for sel in [".o_pager_counter", "[class*=pager]", "div:near(button)"]:
+        c = page.locator(sel).first
+        try:
+            if not c.count():
+                continue
+            t = (c.inner_text() or "").strip()
+            m = re.search(r"(\d+)\s*/\s*(\d+)", t)
+            if m:
+                return int(m.group(2))
+        except Exception:
+            continue
+    return 0
+
+
 def ampliar_paginador(page, tope=5000):
     """Pide a la rejilla que muestre todos los registros de una vez.
 
@@ -646,8 +711,15 @@ def ampliar_paginador(page, tope=5000):
 
     Deja captura del pie para poder ver el DOM real si no funciona.
     """
-    log("   ampliando el paginador")
     esperar_procesando(page)
+    esperado = total_paginador(page)
+    cargadas = filas_datos(page)
+    if esperado and esperado <= cargadas:
+        log(f"   el contador dice {esperado} filas y hay {cargadas}: "
+            f"no hace falta ampliar")
+        return True
+    log(f"   ampliando el paginador (contador {esperado or '?'}, "
+        f"cargadas {cargadas})")
 
     # 1) selector de tamano de pagina, si lo hay
     for sel in ["select[name*='page']", "select[name*='limit']",

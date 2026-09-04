@@ -1132,7 +1132,7 @@ def descargar_detalle(page, codigo):
     return destino
 
 
-def descargar_detalle_lote(page, codigos):
+def descargar_detalle_lote(page, codigos, sufijo=""):
     """Marca varias subpartidas y baja un solo archivo con todas.
 
     El reporte admite varios bloques, uno por cada fila marcada. Sale mas
@@ -1172,7 +1172,8 @@ def descargar_detalle_lote(page, codigos):
         return None
 
     sello = datetime.now(TZ).strftime("%Y-%m-%d")
-    destino = os.path.join(DETALLE, f"detalle_{sello}.xls")
+    # El sufijo evita que una direccion sobreescriba el detalle de otra.
+    destino = os.path.join(DETALLE, f"detalle{sufijo}_{sello}.xls")
     imprimir(page, "Detalle de Movimiento Partida", destino)
 
     try:
@@ -1225,7 +1226,7 @@ def slug(texto):
     return limpio[:40] or "sin_nombre"
 
 
-def descargar_por_direccion(page, direcciones):
+def descargar_por_direccion(page, direcciones, detalle=False, todas=False):
     """Baja un Partida XLS por cada direccion, con la consulta recargada.
 
     Pedir el municipio completo cuelga la consulta, asi que se filtra por una
@@ -1247,6 +1248,18 @@ def descargar_por_direccion(page, direcciones):
             destino = descargar_partidas(page, sufijo="_" + slug(codigo))
             hechos.append(destino)
             cuadre.append(comprobar_asignacion(destino, d))
+
+            if detalle:
+                # El detalle es lo unico que trae la fecha de cada movimiento,
+                # y sin fecha no se puede medir la ventana de junio a
+                # noviembre que exige la verificacion de 2026.
+                hoy, sel, motivo = subpartidas_a_bajar(destino, todas)
+                log(f"   detalle: {motivo}")
+                if sel:
+                    descargar_detalle_lote(page, [x["codigo"] for x in sel],
+                                           sufijo="_" + slug(codigo))
+                else:
+                    log("   sin subpartidas con movimiento")
         except SystemExit as e:
             log(f"   ! {codigo}: {e}")
             fallidos.append((codigo, str(e)))
@@ -1383,7 +1396,9 @@ def main():
                     raise SystemExit(
                         "No hay direcciones que recorrer. Ejecute primero "
                         "--listar-direcciones o defina EGOB_DIRECCIONES.")
-                descargar_por_direccion(page, direcciones)
+                descargar_por_direccion(page, direcciones,
+                                        detalle=not a.sin_detalle,
+                                        todas=a.todas)
                 captura(page, "final")
                 log(f"Listo en {time.time() - inicio:.0f} s")
                 return

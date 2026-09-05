@@ -266,7 +266,11 @@ def verificar(direcciones, total, previo):
     if previo:
         antes = (previo.get("total") or {}).get("codificado")
         antes_n = previo.get("n_direcciones")
-        if antes and antes > 0:
+        # Solo se compara contra una corrida al menos tan completa como esta.
+        # Si la anterior traia menos direcciones, su total es mas bajo por
+        # construccion y la variacion no dice nada.
+        comparable = bool(antes_n) and antes_n >= len(direcciones)
+        if antes and antes > 0 and comparable:
             var = (total["codificado"] - antes) / antes * 100
             if abs(var) > 5:
                 nivel = errores if abs(var) > 15 else alertas
@@ -274,6 +278,10 @@ def verificar(direcciones, total, previo):
                     f"el codificado municipal varia {var:+.2f} % contra la "
                     f"corrida anterior ({antes:,.2f} -> "
                     f"{total['codificado']:,.2f})")
+        elif antes and antes > 0:
+            alertas.append(
+                f"no se compara el total: la corrida anterior traia "
+                f"{antes_n} direcciones y esta trae {len(direcciones)}")
         if antes_n and len(direcciones) < antes_n:
             errores.append(
                 f"llegaron {len(direcciones)} direcciones, antes habia "

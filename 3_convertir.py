@@ -16,6 +16,7 @@ import argparse
 import glob
 import json
 import os
+import sys
 import re
 from datetime import datetime, timezone, timedelta
 
@@ -108,6 +109,7 @@ def mensual(direcciones, bloques):
             mes = f[:7]
             r = meses.setdefault(mes, {"n": 0, "anulaciones": 0,
                                        "por_direccion": {}, "por_grupo": {},
+                                       "por_partida": {},
                                        **{k: 0.0 for k in campos}})
             r["n"] += 1
             if m["certificado"] < 0 or m["comprometido"] < 0:
@@ -116,9 +118,13 @@ def mensual(direcciones, bloques):
                 r[k] += m[k]
             pd = r["por_direccion"].setdefault(dirc, {k: 0.0 for k in campos})
             pg = r["por_grupo"].setdefault(cod[:2], {k: 0.0 for k in campos})
+            # clave dir|partida: permite filtrar la cedula por mes
+            pp = r["por_partida"].setdefault(dirc + "|" + part,
+                                             {k: 0.0 for k in campos})
             for k in campos:
                 pd[k] += m[k]
                 pg[k] += m[k]
+                pp[k] += m[k]
 
     salida, acum = [], {k: 0.0 for k in campos}
     for mes in sorted(meses):
@@ -140,6 +146,9 @@ def mensual(direcciones, bloques):
                                  for d, v in r["por_direccion"].items()}
         fila["por_grupo"] = {g: {k: round(v[k], 2) for k in campos}
                              for g, v in r["por_grupo"].items()}
+        fila["por_partida"] = {c: {k: round(v[k], 2) for k in campos}
+                               for c, v in r["por_partida"].items()
+                               if any(abs(v[k]) > 0.004 for k in campos)}
         salida.append(fila)
     return salida
 
@@ -200,9 +209,84 @@ def indicador_ventana(direcciones, bloques):
     }
 
 
+def verificar(direcciones, total, previo):
+    """Cuadres del codificado. Devuelve (errores, alertas).
+
+    Un error significa que las cifras no son confiables y el consolidado no
+    debe publicarse. Una alerta se reporta pero no bloquea.
+    """
+    errores, alertas = [], []
+    TOL = 1.0  # un dolar: absorbe el redondeo de eGob sin tapar diferencias
+
+    for d in direcciones:
+        t, cod = d["total"], d["codigo"]
+
+        # 1. Identidad presupuestaria: codificado = asignacion + reformas
+        esperado = t["asignacion"] + t["reformas"]
+        if abs(esperado - t["codificado"]) > TOL:
+            errores.append(
+                f"{cod}: codificado {t['codificado']:,.2f} no es asignacion "
+                f"{t['asignacion']:,.2f} + reformas {t['reformas']:,.2f} "
+                f"(difiere en {t['codificado'] - esperado:,.2f})")
+
+        # 2. Las partidas deben sumar el total que declara el propio XLS
+        suma = round(sum(x.get("codificado", 0.0) for x in d["partidas"]), 2)
+        if abs(suma - t["codificado"]) > TOL:
+            errores.append(
+                f"{cod}: las {len(d['partidas'])} partidas suman "
+                f"{suma:,.2f} pero el total del XLS dice "
+                f"{t['codificado']:,.2f} (difiere en {suma - t['codificado']:,.2f})")
+
+        # 3. Las subpartidas deben sumar el codificado de su partida
+        porpadre = {}
+        for s in d.get("subpartidas", []):
+            porpadre.setdefault(s.get("padre"), 0.0)
+            porpadre[s["padre"]] += s.get("codificado", 0.0)
+        for x in d["partidas"]:
+            if x["codigo"] not in porpadre:
+                continue
+            sub = round(porpadre[x["codigo"]], 2)
+            if abs(sub - x.get("codificado", 0.0)) > TOL:
+                alertas.append(
+                    f"{cod} partida {x['codigo']}: subpartidas suman "
+                    f"{sub:,.2f} vs. {x.get('codificado', 0.0):,.2f} de la partida")
+
+        # 4. Coherencia de la cadena de ejecucion
+        if t["certificado"] - t["codificado"] > TOL:
+            errores.append(f"{cod}: certificado supera el codificado")
+        if t["devengado"] - t["comprometido"] > TOL:
+            alertas.append(f"{cod}: devengado supera el comprometido")
+
+        # 5. Una direccion sin codificado casi siempre es un XLS truncado
+        if t["codificado"] <= TOL and len(d["partidas"]) == 0:
+            errores.append(f"{cod}: sin partidas ni codificado; XLS vacio")
+
+    # 6. El total municipal contra la corrida anterior. Un salto grande
+    #    delata direcciones faltantes o un XLS mal leido.
+    if previo:
+        antes = (previo.get("total") or {}).get("codificado")
+        antes_n = previo.get("n_direcciones")
+        if antes and antes > 0:
+            var = (total["codificado"] - antes) / antes * 100
+            if abs(var) > 5:
+                nivel = errores if abs(var) > 15 else alertas
+                nivel.append(
+                    f"el codificado municipal varia {var:+.2f} % contra la "
+                    f"corrida anterior ({antes:,.2f} -> "
+                    f"{total['codificado']:,.2f})")
+        if antes_n and len(direcciones) < antes_n:
+            errores.append(
+                f"llegaron {len(direcciones)} direcciones, antes habia "
+                f"{antes_n}: hay descargas faltantes")
+
+    return errores, alertas
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--datos", default="datos")
+    ap.add_argument("--forzar", action="store_true",
+                    help="escribe el consolidado aunque el cuadre falle")
     ap.add_argument("--salida", default="datos-municipio.json")
     a = ap.parse_args()
 
@@ -263,22 +347,41 @@ def main():
     bloques, n_det, av_det = cargar_detalle(a.datos)
     avisos += av_det
 
+    # El consolidado de la corrida anterior sirve de referencia de cuadre.
+    previo = None
+    if os.path.exists(a.salida):
+        try:
+            with open(a.salida, encoding="utf-8") as f:
+                previo = json.load(f)
+        except Exception:
+            previo = None
+
+    errores, alertas = verificar(direcciones, total, previo)
+
     salida = {
         "fuente": "eGob — GAD Municipal de Riobamba, Consulta presupuestaria",
         "generado": datetime.now(TZ).isoformat(timespec="seconds"),
         "n_direcciones": len(direcciones),
         "total": total,
         "avisos": avisos,
+        "cuadre": {"errores": errores, "alertas": alertas,
+                   "ok": not errores},
         "detalle": {"archivos": n_det, "subpartidas": len(bloques)},
         "mensual": mensual(direcciones, bloques) if bloques else [],
         "ventana": indicador_ventana(direcciones, bloques) if bloques else None,
         "direcciones": direcciones,
     }
 
-    with open(a.salida, "w", encoding="utf-8") as f:
+    destino = a.salida
+    if errores and not a.forzar:
+        # Se escribe aparte para poder revisarlo sin perder el consolidado
+        # bueno que ya esta publicado.
+        destino = a.salida.replace(".json", "") + ".rechazado.json"
+
+    with open(destino, "w", encoding="utf-8") as f:
         json.dump(salida, f, ensure_ascii=False, separators=(",", ":"))
 
-    print(f"{len(direcciones)} direcciones · {a.salida}")
+    print(f"{len(direcciones)} direcciones · {destino}")
     print(f"  asignacion  {total['asignacion']:>16,.2f}")
     print(f"  reformas    {total['reformas']:>16,.2f}")
     print(f"  codificado  {total['codificado']:>16,.2f}")
@@ -300,6 +403,28 @@ def main():
     for av in avisos:
         print("  ! " + av)
 
+    print("")
+    if errores:
+        print(f"CUADRE FALLIDO — {len(errores)} error(es) de codificado:")
+        for e in errores:
+            print("  X " + e)
+        for al in alertas:
+            print("  ~ " + al)
+        if a.forzar:
+            print("")
+            print("Se escribio de todos modos por --forzar.")
+        else:
+            print("")
+            print(f"El consolidado quedo en {destino} y no se publica.")
+            print("Revise las direcciones senaladas y reintente su descarga.")
+            return 2
+    else:
+        print(f"Cuadre correcto: codificado = asignacion + reformas y las "
+              f"partidas suman el total en las {len(direcciones)} direcciones.")
+        for al in alertas:
+            print("  ~ " + al)
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

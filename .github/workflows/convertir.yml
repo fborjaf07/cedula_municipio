@@ -9,6 +9,10 @@ on:
         description: 'Id del run a convertir (vacio = busca solo el ultimo artefacto datos-municipio)'
         type: string
         default: ''
+      forzar:
+        description: 'Publicar aunque el cuadre del codificado falle'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -43,11 +47,14 @@ jobs:
             echo "usando el run indicado: ${{ inputs.run_id }}"
             exit 0
           fi
+          # Se busca el run mas reciente que tenga artefactos xls-*, que son
+          # los que sube cada direccion por separado. El artefacto
+          # datos-municipio puede venir vacio si los jobs de descarga fallaron.
           RUN=$(gh api "repos/${{ github.repository }}/actions/artifacts?per_page=100" \
-                --jq '[.artifacts[] | select(.name == "datos-municipio" and .expired == false)]
+                --jq '[.artifacts[] | select((.name | startswith("xls-")) and .expired == false)]
                       | sort_by(.created_at) | reverse | .[0].workflow_run.id')
           if [ -z "$RUN" ] || [ "$RUN" = "null" ]; then
-            echo "No hay ningun artefacto datos-municipio vigente." >&2
+            echo "No hay ningun artefacto xls-* vigente." >&2
             gh api "repos/${{ github.repository }}/actions/artifacts?per_page=100" \
               --jq '.artifacts[] | "\(.name)  run \(.workflow_run.id)  \(.created_at)  expirado=\(.expired)"' >&2
             exit 1
@@ -55,32 +62,75 @@ jobs:
           echo "run_id=$RUN" >> $GITHUB_OUTPUT
           echo "artefacto mas reciente en el run $RUN"
 
-      - name: Traer los XLS del artefacto
+      - name: Traer los XLS de cada direccion
         uses: actions/download-artifact@v4
         with:
-          name: datos-municipio
+          pattern: xls-*
+          merge-multiple: true
           path: datos
           run-id: ${{ steps.buscar.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Inventario
+      - name: Inventario y faltantes
+        id: inv
         run: |
           find datos -name '*.xls' | sort
-          echo "total: $(find datos -name '*.xls' | wc -l)"
+          N=$(find datos -name 'partidas_*.xls' | wc -l | tr -d ' ')
+          echo "total partidas: $N"
+          if [ "$N" = "0" ]; then
+            echo "El run ${{ steps.buscar.outputs.run_id }} no trae XLS de partidas." >&2
+            echo "Lo que si llego:" >&2
+            find datos -type f | head -40 >&2
+            exit 1
+          fi
+          python faltantes.py datos > faltantes.txt || true
+          FALTAN=$(tr -d '\n' < faltantes.txt)
+          echo "n=$N" >> "$GITHUB_OUTPUT"
+          echo "faltan=$FALTAN" >> "$GITHUB_OUTPUT"
+          if [ -n "$FALTAN" ]; then
+            echo "::warning::Faltan direcciones: $FALTAN"
+          fi
 
-      - name: Convertir a JSON
+      - name: Convertir y verificar el cuadre
+        id: conv
         run: |
           set -o pipefail
-          python 3_convertir.py --datos datos --salida datos-municipio.json | tee conversion.log
+          # 3_convertir.py sale con codigo 2 si el codificado no cuadra; en ese
+          # caso escribe datos-municipio.rechazado.json y no toca el bueno.
+          if [ "${{ inputs.forzar }}" = "true" ]; then
+            python 3_convertir.py --datos datos --salida datos-municipio.json --forzar | tee conversion.log
+          else
+            python 3_convertir.py --datos datos --salida datos-municipio.json | tee conversion.log
+          fi
+          echo "cuadre=ok" >> "$GITHUB_OUTPUT"
+
+      - name: Guardar el consolidado rechazado
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rechazado
+          path: |
+            datos-municipio.rechazado.json
+            conversion.log
+          retention-days: 14
+          if-no-files-found: ignore
 
       - name: Resumen
         if: always()
+        env:
+          FALTAN: ${{ steps.inv.outputs.faltan }}
         run: |
-          echo '## Direcciones convertidas' >> $GITHUB_STEP_SUMMARY
-          echo '' >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat conversion.log >> $GITHUB_STEP_SUMMARY || true
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          {
+            echo '## Direcciones convertidas'
+            echo ''
+            if [ -n "$FALTAN" ]; then
+              echo "**Faltan:** $FALTAN"
+              echo ''
+            fi
+            echo '```'
+            cat conversion.log || true
+            echo '```'
+          } >> $GITHUB_STEP_SUMMARY
 
       - name: Armar los datos del tablero
         run: |
@@ -88,17 +138,21 @@ jobs:
           python 4_tablero.py --entrada datos-municipio.json --salida datos-regla.json | tee -a conversion.log
 
       - name: Publicar
+        if: ${{ steps.conv.outputs.cuadre == 'ok' }}
         run: |
           set -e
-          # El JSON lo reescribe cada corrida completa, asi que fusionarlo con
-          # el del repo solo produce conflictos. Se guarda aparte, se vuelve a
-          # main limpio y se comitea encima.
+          # Los JSON los reescribe cada corrida, asi que fusionarlos con los del
+          # repo solo produce conflictos. Se guardan aparte, se lleva el arbol a
+          # origin/main de forma limpia y se comitean encima.
           cp datos-municipio.json /tmp/
           cp datos-regla.json /tmp/
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin main
-          git checkout -B main origin/main
+          # reset --hard en lugar de checkout -B: los JSON generados son
+          # archivos versionados y un checkout normal se niega a sobrescribirlos.
+          git reset --hard origin/main
+          git checkout -B main
           cp /tmp/datos-municipio.json datos-municipio.json
           cp /tmp/datos-regla.json datos-regla.json
           git add datos-municipio.json datos-regla.json

@@ -73,9 +73,11 @@ jobs:
           EGOB_USUARIO: ${{ secrets.EGOB_USUARIO }}
           EGOB_CLAVE: ${{ secrets.EGOB_CLAVE }}
           EGOB_DIRECCIONES: ${{ matrix.direccion }}
-          # En la corrida programada inputs.detalle viene vacio; el detalle
-          # es justamente lo que hace falta, asi que se asume que si.
-          DETALLE: ${{ inputs.detalle == false && 'false' || 'true' }}
+          # OJO: en expresiones de Actions una cadena vacia comparada con
+          # false da TRUE, asi que "inputs.detalle == false" se cumplia en la
+          # corrida programada (inputs viene vacio) y el detalle no se bajaba
+          # nunca. Solo se apaga si alguien lo desactiva a mano.
+          DETALLE: ${{ (github.event_name == 'workflow_dispatch' && inputs.detalle == false) && 'false' || 'true' }}
         run: |
           set -o pipefail
           mkdir -p datos/detalle capturas
@@ -88,8 +90,17 @@ jobs:
             echo "=== $EGOB_DIRECCIONES intento $INTENTO de 3 ==="
             OK=0
             python 1_descargar.py $ARGS 2>&1 | tee "capturas/corrida-$INTENTO.log" && OK=1
-            # eGob a veces responde sin error pero sin partidas; se valida el XLS.
-            if [ "$OK" = "1" ] && ls datos/partidas_*.xls >/dev/null 2>&1; then
+            # eGob a veces responde sin error pero sin partidas; se valida el
+            # XLS. Y si se pidio detalle, tambien tiene que haber bajado
+            # detalle: antes el job salia con exito con datos/detalle vacia y
+            # el consolidado se publicaba sin ventana ni serie mensual.
+            HAY_PART=0; ls datos/partidas_*.xls >/dev/null 2>&1 && HAY_PART=1
+            HAY_DET=0;  ls datos/detalle/*.xls  >/dev/null 2>&1 && HAY_DET=1
+            [ "$DETALLE" = "true" ] || HAY_DET=1
+            if [ "$HAY_PART" = "1" ] && [ "$HAY_DET" = "0" ]; then
+              echo "::warning::$EGOB_DIRECCIONES bajo partidas pero no el detalle."
+            fi
+            if [ "$OK" = "1" ] && [ "$HAY_PART" = "1" ] && [ "$HAY_DET" = "1" ]; then
               echo "OK en el intento $INTENTO"
               cp "capturas/corrida-$INTENTO.log" capturas/corrida.log
               exit 0
@@ -164,7 +175,11 @@ jobs:
           python faltantes.py datos > faltantes.txt
           FALTAN=$(tr -d "\n" < faltantes.txt)
           echo "n=$N" >> "$GITHUB_OUTPUT"
+          echo "d=$D" >> "$GITHUB_OUTPUT"
           echo "faltan=$FALTAN" >> "$GITHUB_OUTPUT"
+          if [ "$D" = "0" ]; then
+            echo "::error::No llego ningun XLS de detalle: el consolidado saldria sin ventana ni serie mensual."
+          fi
           if [ -n "$FALTAN" ]; then
             echo "::warning::Faltan direcciones: $FALTAN"
           fi
@@ -193,12 +208,20 @@ jobs:
         if: always()
         env:
           N_OK: ${{ steps.inv.outputs.n }}
+          N_DET: ${{ steps.inv.outputs.d }}
           FALTAN: ${{ steps.inv.outputs.faltan }}
         run: |
           {
             echo "## Consolidado"
             echo ""
             echo "Direcciones descargadas: $N_OK de 23"
+            echo ""
+            echo "Archivos de detalle: $N_DET"
+            if [ "$N_DET" = "0" ]; then
+              echo ""
+              echo "**Sin detalle.** El tablero queda sin la ventana legal ni la"
+              echo "serie mensual. Vuelva a lanzar con *Bajar el detalle* activo."
+            fi
             if [ -n "$FALTAN" ]; then
               echo ""
               echo "**Faltan:** $FALTAN"

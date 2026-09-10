@@ -169,7 +169,7 @@ def indicador_ventana(direcciones, bloques):
                 dueno[s] = (d["codigo"], p["codigo"])
 
     num = den = 0.0
-    por_dir, por_grupo = {}, {}
+    por_dir, por_grupo, por_mes = {}, {}, {}
     ini, fin = VENTANA
     for cod, b in bloques.items():
         dirc, part = dueno.get(cod, ("", cod[:8]))
@@ -193,8 +193,31 @@ def indicador_ventana(direcciones, bloques):
             pg["den"] += dev
             if comp:
                 pg["num"] += dev
+            # num y den exactos de cada mes de la ventana
+            pm = por_mes.setdefault(f[:7], {"num": 0.0, "den": 0.0})
+            pm["den"] += dev
+            if comp:
+                pm["num"] += dev
+
+    serie_mes = []
+    acn = acd = 0.0
+    for mes in sorted(por_mes):
+        v = por_mes[mes]
+        acn += v["num"]
+        acd += v["den"]
+        aa, mm = mes.split("-")
+        serie_mes.append({
+            "mes": mes,
+            "etiqueta": f"{MESES_ES[int(mm)]} {aa}",
+            "corto": MESES_ES[int(mm)][:3].capitalize(),
+            "num": round(v["num"], 2), "den": round(v["den"], 2),
+            "pct": round(v["num"] / v["den"] * 100, 2) if v["den"] > 0 else None,
+            "acum_num": round(acn, 2), "acum_den": round(acd, 2),
+            "acum_pct": round(acn / acd * 100, 2) if acd > 0 else None,
+        })
 
     return {
+        "por_mes": serie_mes,
         "desde": ini, "hasta": fin, "umbral": 65,
         "num": round(num, 2), "den": round(den, 2),
         "pct": round(num / den * 100, 2) if den > 0 else None,

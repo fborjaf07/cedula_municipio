@@ -47,7 +47,30 @@ def r2(n):
     return round(float(n or 0), 2)
 
 
+FUENTES_SUFIJO = {
+    "302": "Préstamos internos",
+    "001": "Recursos fiscales",
+    "002": "Recursos fiscales generados por la institución",
+    "005": "Convenios",
+    "007": "Recuperación IVA años anteriores",
+    "008": "Contribución especial de mejoras",
+}
+
+
+def fuente_de(codigo):
+    """La fuente de financiamiento va en el ultimo segmento del codigo."""
+    seg = codigo.rsplit(".", 1)[-1] if "." in codigo else ""
+    return FUENTES_SUFIJO.get(seg, "")
+
+
 def construir(M):
+    # El saldo con disponibilidad efectiva viene del detalle de movimientos:
+    # el convertidor lo guarda por subpartida cuando el XLS de detalle existe.
+    disponible = {}
+    for d in M.get("direcciones", []):
+        for s in d.get("subpartidas", []):
+            if s.get("saldo_disponible") is not None:
+                disponible[s["codigo"]] = s["saldo_disponible"]
     grupos, dirs = {}, []
     num_c = den_c = num_d = den_d = fuera = 0.0
 
@@ -130,6 +153,7 @@ def construir(M):
             "por_direccion": m.get("por_direccion", {}),
         } for m in M.get("mensual", [])],
         # La cedula completa, para la pestaña que filtra por direccion.
+        # saldo_disponible por subpartida, tomado del detalle de cada direccion
         "cedula": [{
             "codigo": x["codigo"], "nombre": x.get("nombre", ""),
             "total": {k: r2(x["total"].get(k)) for k in CAMPOS},
@@ -147,7 +171,12 @@ def construir(M):
                           "codificado": r2(s["codificado"]),
                           "certificado": r2(s["certificado"]),
                           "comprometido": r2(s["comprometido"]),
-                          "devengado": r2(s["devengado"])}
+                          "devengado": r2(s["devengado"]),
+                          # El detalle trae el saldo con disponibilidad efectiva;
+                          # lo que falta hasta el saldo por certificar esta
+                          # codificado pero no disponible para comprometer.
+                          "disponible": r2(disponible.get(s["codigo"])),
+                          "fuente": fuente_de(s["codigo"])}
                          for s in x.get("subpartidas", [])
                          if s.get("padre") == p["codigo"]],
             } for p in x["partidas"]],
